@@ -10,17 +10,20 @@ import {
 } from "@inrupt/solid-client";
 import { useDataset, useSession } from "@inrupt/solid-ui-react";
 import { FunctionComponent, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { CHARM_SCHEMA_VERSION } from "..";
 import { useGetAppConfigUrl } from "../InitializeApp";
 import {
   CHARM_CLASS,
   CREATED_PREDICATE,
+  NAME_PREDICATE,
   SCHEMA_VERSION_PREDICATE,
   TEXT_PREDICATE,
   TYPE_PREDICATE,
 } from "./shape";
 
 const CharmsCreate: FunctionComponent = () => {
+  const navigate = useNavigate();
   const { fetch } = useSession();
   const [name, setName] = useState("");
   const [body, setBody] = useState("");
@@ -47,8 +50,9 @@ const CharmsCreate: FunctionComponent = () => {
           TEXT_PREDICATE,
           body
         );
+        const charmName = addStringNoLocale(charmText, NAME_PREDICATE, name);
         const charmCreated = addDatetime(
-          charmText,
+          charmName,
           CREATED_PREDICATE,
           new Date()
         );
@@ -66,7 +70,7 @@ const CharmsCreate: FunctionComponent = () => {
             fetch,
           }
         );
-        console.log(updatedDataset);
+        navigate("/charms");
       }}
     >
       <h1>Create a charm</h1>
