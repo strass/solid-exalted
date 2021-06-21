@@ -70,6 +70,7 @@ const CharmsCreate: FunctionComponent = () => {
             fetch,
           }
         );
+        console.log(updatedDataset);
         navigate("/charms");
       }}
     >
