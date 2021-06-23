@@ -12,6 +12,7 @@ import reportWebVitals from "./reportWebVitals";
 
 export const APP_ID = "exalted:app:essence.ooo" as const;
 export const CHARM_SCHEMA_VERSION = 0;
+export const DEFAULT_APP_FOLDER = "public/exalted/";
 
 const Layout: FunctionComponent = () => (
   <SessionProvider sessionId={APP_ID}>

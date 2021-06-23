@@ -1,6 +1,6 @@
 import {
   getSolidDataset,
-  getStringNoLocale,
+  getUrl,
   getThing,
   getThingAll,
   getUrlAll,
@@ -68,10 +68,11 @@ export const fetchAppDataRegistration = async (
           );
         })
         .filter((t) => {
-          const forClass = getStringNoLocale(
+          const forClass = getUrl(
             t,
             "http://www.w3.org/ns/solid/terms#forClass"
           );
+          console.log(forClass);
           return forClass === APP_ID;
         });
 

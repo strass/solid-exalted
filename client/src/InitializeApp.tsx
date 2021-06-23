@@ -1,16 +1,20 @@
 import {
-  setThing,
   addUrl,
   createSolidDataset,
   createThing,
+  getSolidDataset,
+  changeLogAsMarkdown,
   getSourceUrl,
   getThing,
   getUrlAll,
   saveSolidDatasetAt,
+  setThing,
+  SolidDataset,
 } from "@inrupt/solid-client";
 import { useDataset, useSession, useThing } from "@inrupt/solid-ui-react";
-import { FunctionComponent, useState } from "react";
+import { FunctionComponent, useEffect, useState } from "react";
 import { Outlet } from "react-router-dom";
+import { APP_ID, DEFAULT_APP_FOLDER } from ".";
 import { TYPE_PREDICATE } from "./Charms/shape";
 import Spinner from "./components/Spinner";
 import { fetchAppDataRegistration, getTypeIndices } from "./init";
@@ -57,6 +61,7 @@ export const useGetAppConfigUrl = () => {
 };
 
 const AppInitializationStatus: FunctionComponent = () => {
+  const [dataInstances, setDataInstances] = useState<string[]>([]);
   const [refetchToggle, setRefetchToggle] = useState(0);
   const {
     session: {
@@ -64,107 +69,166 @@ const AppInitializationStatus: FunctionComponent = () => {
     },
     fetch,
   } = useSession();
-  const appIndexUrl = useGetAppConfigUrl();
-  const { dataset: appConfig, error: appConfigError } = useDataset(
-    appIndexUrl,
-    refetchToggle
-  );
+  const { dataset: firstDataInstance, error: firstDataInstanceError } =
+    useDataset(dataInstances[0], refetchToggle);
 
   const { dataset: profileDataset } = useDataset(webId);
-  if (profileDataset && webId) {
-    const { public: publicIndices, private: privateIndices } = getTypeIndices(
-      profileDataset,
-      webId
-    );
-    const indices = [...publicIndices, ...privateIndices];
-    if (indices.length > 0) {
-      fetchAppDataRegistration(indices, fetch).then((list) => {
-        console.log(list);
-        if (list.length === 0) {
-          throw new Error("No TypeIndices found");
-        }
-        // If there aren't any data registries, create defaults
-        if (
-          list.every(
-            (d) => d.instances.length === 0 && d.instanceContainers.length === 0
-          )
-        ) {
-          const firstPublicIndex = list.find((d) => d.type === "listed");
-          if (!firstPublicIndex) {
-            throw new Error("Could not find public index");
+
+  useEffect(() => {
+    if (dataInstances.length) {
+      return;
+    }
+    if (profileDataset && webId) {
+      (async () => {
+        const { public: publicIndices, private: privateIndices } =
+          getTypeIndices(profileDataset, webId);
+        const indices = [...publicIndices, ...privateIndices];
+        console.debug(`Found ${indices.length} data indices`);
+        if (indices.length > 0) {
+          const typeIndices = await fetchAppDataRegistration(indices, fetch);
+          console.debug(`Found ${typeIndices.length} type indices`);
+          if (typeIndices.length === 0) {
+            throw new Error("No TypeIndices found");
           }
-          let newThing = createThing();
-          newThing = addUrl(
-            newThing,
-            TYPE_PREDICATE,
-            "http://www.w3.org/ns/solid/terms#TypeRegistration"
-          );
-          newThing = addUrl(
-            newThing,
-            "http://www.w3.org/ns/solid/terms#forClass",
-            "exalted:Resource"
-          );
-
-          const profile = getThing(profileDataset, webId);
-          if (!profile) {
-            throw new Error("No profile found");
+          console.log(typeIndices);
+          // If there are data registries available save them
+          if (
+            !typeIndices.every(
+              (reg) =>
+                reg.instances.length === 0 &&
+                reg.instanceContainers.length === 0
+            )
+          ) {
+            console.log("Found existing data instances");
+            setDataInstances(
+              typeIndices.flatMap((reg) => [
+                ...reg.instances,
+                ...reg.instanceContainers,
+              ])
+            );
           }
-          const podsUrls = getUrlAll(
-            profile,
-            "http://www.w3.org/ns/pim/space#storage"
-          );
+          // Otherwise create defaults
+          // TODO: Prompts for user settings instead of setting a default for them
+          else {
+            console.log(
+              "TODO: We are duplicating TypeRegistrations by running this too aggressively"
+            );
+            const firstPublicIndex = typeIndices.find(
+              (d) => d.type === "listed"
+            );
+            if (!firstPublicIndex) {
+              throw new Error("Could not find public index");
+            }
 
-          if (profile && !podsUrls?.[0]) {
-            throw new Error("Profile contains no storage");
-          }
+            // Start assembling our new typeregistration
+            let newRegistrationInstanceThing = createThing();
+            newRegistrationInstanceThing = addUrl(
+              newRegistrationInstanceThing,
+              TYPE_PREDICATE,
+              "http://www.w3.org/ns/solid/terms#TypeRegistration"
+            );
+            newRegistrationInstanceThing = addUrl(
+              newRegistrationInstanceThing,
+              "http://www.w3.org/ns/solid/terms#forClass",
+              APP_ID
+            );
 
-          const defaultAppDataIndexUrl =
-            `${podsUrls?.[0]}exalted/index.ttl` as const;
+            const profile = getThing(profileDataset, webId);
+            if (!profile) {
+              throw new Error("No profile found");
+            }
+            const podsUrls = getUrlAll(
+              profile,
+              "http://www.w3.org/ns/pim/space#storage"
+            );
 
-          const exaltedIndexDataset = createSolidDataset();
+            if (!podsUrls?.[0]) {
+              throw new Error("Profile contains no storage");
+            }
 
-          saveSolidDatasetAt(defaultAppDataIndexUrl, exaltedIndexDataset, {
-            fetch,
-          })
-            .then((r) => {
-              console.log(r);
+            const defaultAppDataIndexUrl =
+              `${podsUrls?.[0]}${DEFAULT_APP_FOLDER}index.ttl` as const;
 
-              newThing = addUrl(
-                newThing,
+            try {
+              // Check whether index already exists
+              let appDataIndexDataset: SolidDataset | undefined = undefined;
+
+              try {
+                appDataIndexDataset = await getSolidDataset(
+                  defaultAppDataIndexUrl
+                );
+                console.debug("Found existing appDataIndexDataset");
+              } catch (ex) {
+                if (
+                  ex.statusCode === 404 ||
+                  // Not sure why I need this?
+                  ex.statusCode === 401
+                ) {
+                  console.log("Creating appDataIndexDataset ...");
+                  appDataIndexDataset = await saveSolidDatasetAt(
+                    defaultAppDataIndexUrl,
+                    createSolidDataset(),
+                    {
+                      fetch,
+                    }
+                  );
+                  console.log("... Created");
+                }
+              }
+
+              if (!appDataIndexDataset) {
+                throw new Error("Problem finding/creating app data index");
+              }
+
+              console.log(appDataIndexDataset);
+
+              newRegistrationInstanceThing = addUrl(
+                newRegistrationInstanceThing,
                 "http://www.w3.org/ns/solid/terms#instance",
-                defaultAppDataIndexUrl
+                getSourceUrl(appDataIndexDataset) as string
               );
-
-              saveSolidDatasetAt(
-                getSourceUrl(profileDataset) as string,
-                setThing(profileDataset, newThing),
+              const localUpdatedProfile = setThing(
+                profileDataset,
+                newRegistrationInstanceThing
+              );
+              console.debug(
+                "Updating profile dataset...\n",
+                changeLogAsMarkdown(localUpdatedProfile)
+              );
+              await saveSolidDatasetAt(
+                getSourceUrl(localUpdatedProfile) as string,
+                localUpdatedProfile,
                 {
                   fetch,
                 }
               );
-              debugger;
+              console.debug("... Updated");
+              setDataInstances([
+                ...dataInstances,
+                getSourceUrl(appDataIndexDataset) as string,
+              ]);
               setRefetchToggle((t) => t++);
-            })
-            .catch((e) => {
-              debugger;
-              throw new Error(e);
-            });
+            } catch (ex) {
+              throw new Error(ex);
+            }
+          }
+        } else {
+          throw new Error("No type index found");
         }
-      });
-    } else {
-      throw new Error("No type index found");
+      })();
     }
-  }
+  }, [dataInstances, fetch, profileDataset, webId]);
 
   if (!isLoggedIn || !webId) return null;
-  if (appConfigError && appConfigError.statusCode === 404) {
+  if (firstDataInstanceError && firstDataInstanceError.statusCode === 404) {
     return <span>init...</span>;
-  } else if (appConfigError) {
-    throw new Error(appConfigError);
+  } else if (firstDataInstanceError) {
+    throw new Error(firstDataInstanceError);
   }
-  if (!appConfig) {
+  if (!firstDataInstance) {
     return <Spinner loading />;
   }
+  console.log(dataInstances);
   return <Outlet />;
 };
 
