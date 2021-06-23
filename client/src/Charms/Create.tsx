@@ -12,7 +12,8 @@ import { useDataset, useSession } from "@inrupt/solid-ui-react";
 import { FunctionComponent, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { CHARM_SCHEMA_VERSION } from "..";
-import { useGetAppConfigUrl } from "../InitializeApp";
+import Spinner from "../components/Spinner";
+import useSolidContext from "../context/Solid";
 import {
   CHARM_CLASS,
   CREATED_PREDICATE,
@@ -23,22 +24,20 @@ import {
 } from "./shape";
 
 const CharmsCreate: FunctionComponent = () => {
+  const { dataInstances } = useSolidContext();
   const navigate = useNavigate();
   const { fetch } = useSession();
   const [name, setName] = useState("");
   const [body, setBody] = useState("");
   const version = CHARM_SCHEMA_VERSION;
 
-  const appConfigUrl = useGetAppConfigUrl();
-
-  const { dataset: appConfig, error } = useDataset(appConfigUrl);
+  const { dataset: appConfig, error } = useDataset(dataInstances?.[0]);
   if (error) {
     throw new Error(error);
   }
 
   if (!appConfig) {
-    console.warn("TODO: add loading");
-    return null;
+    return <Spinner loading />;
   }
 
   return (
@@ -83,6 +82,7 @@ const CharmsCreate: FunctionComponent = () => {
           value={name}
         />
       </label>
+      <br />
       <label>
         Body
         <textarea onChange={(e) => setBody(e.target.value)} value={body} />

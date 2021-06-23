@@ -12,11 +12,13 @@ import {
   SolidDataset,
 } from "@inrupt/solid-client";
 import { useDataset, useSession, useThing } from "@inrupt/solid-ui-react";
+import { useMemo } from "react";
 import { FunctionComponent, useEffect, useState } from "react";
 import { Outlet } from "react-router-dom";
 import { APP_ID, DEFAULT_APP_FOLDER } from ".";
 import { TYPE_PREDICATE } from "./Charms/shape";
 import Spinner from "./components/Spinner";
+import { SolidContext } from "./context/Solid";
 import { fetchAppDataRegistration, getTypeIndices } from "./init";
 
 export const useProfile = () => {
@@ -35,34 +37,8 @@ export const useProfile = () => {
   return profile;
 };
 
-export const useGetAppConfigUrl = () => {
-  const {
-    session: {
-      info: { isLoggedIn },
-    },
-  } = useSession();
-  const { thing: profile, error } = useProfile();
-  if (!isLoggedIn) {
-    return undefined;
-  }
-  if (error) {
-    throw new Error(error);
-  }
-  if (!profile) {
-    return undefined;
-  }
-  const podsUrls = getUrlAll(profile, "http://www.w3.org/ns/pim/space#storage");
-
-  if (profile && !podsUrls?.[0]) {
-    throw new Error("Profile contains no storage");
-  }
-
-  return `${podsUrls?.[0]}exalted/index.ttl` as const;
-};
-
 const AppInitializationStatus: FunctionComponent = () => {
   const [dataInstances, setDataInstances] = useState<string[]>([]);
-  const [refetchToggle, setRefetchToggle] = useState(0);
   const {
     session: {
       info: { isLoggedIn, webId },
@@ -70,11 +46,12 @@ const AppInitializationStatus: FunctionComponent = () => {
     fetch,
   } = useSession();
   const { dataset: firstDataInstance, error: firstDataInstanceError } =
-    useDataset(dataInstances[0], refetchToggle);
+    useDataset(dataInstances[0]);
 
   const { dataset: profileDataset } = useDataset(webId);
 
   useEffect(() => {
+    // If we already have dataInstances loaded we don't need to run the check again
     if (dataInstances.length) {
       return;
     }
@@ -187,8 +164,13 @@ const AppInitializationStatus: FunctionComponent = () => {
                 "http://www.w3.org/ns/solid/terms#instance",
                 getSourceUrl(appDataIndexDataset) as string
               );
+
+              const latestProfileDataset = await getSolidDataset(
+                getSourceUrl(profileDataset) as string
+              );
+
               const localUpdatedProfile = setThing(
-                profileDataset,
+                latestProfileDataset,
                 newRegistrationInstanceThing
               );
               console.debug(
@@ -207,7 +189,6 @@ const AppInitializationStatus: FunctionComponent = () => {
                 ...dataInstances,
                 getSourceUrl(appDataIndexDataset) as string,
               ]);
-              setRefetchToggle((t) => t++);
             } catch (ex) {
               throw new Error(ex);
             }
@@ -219,6 +200,13 @@ const AppInitializationStatus: FunctionComponent = () => {
     }
   }, [dataInstances, fetch, profileDataset, webId]);
 
+  const value = useMemo(
+    () => ({
+      dataInstances,
+    }),
+    [dataInstances]
+  );
+
   if (!isLoggedIn || !webId) return null;
   if (firstDataInstanceError && firstDataInstanceError.statusCode === 404) {
     return <span>init...</span>;
@@ -228,8 +216,12 @@ const AppInitializationStatus: FunctionComponent = () => {
   if (!firstDataInstance) {
     return <Spinner loading />;
   }
-  console.log(dataInstances);
-  return <Outlet />;
+
+  return (
+    <SolidContext.Provider value={value}>
+      <Outlet />
+    </SolidContext.Provider>
+  );
 };
 
 export default AppInitializationStatus;

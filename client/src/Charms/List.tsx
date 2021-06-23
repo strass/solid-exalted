@@ -2,7 +2,7 @@ import { getThingAll, getUrl } from "@inrupt/solid-client";
 import { Table, TableColumn, useDataset } from "@inrupt/solid-ui-react";
 import { FunctionComponent } from "react";
 import { Link } from "react-router-dom";
-import { useGetAppConfigUrl } from "../InitializeApp";
+import useSolidContext from "../context/Solid";
 import {
   TYPE_PREDICATE,
   CHARM_CLASS,
@@ -12,8 +12,8 @@ import {
 } from "./shape";
 
 const CharmsList: FunctionComponent = () => {
-  const appConfigUrl = useGetAppConfigUrl();
-  const { dataset: appConfig, error } = useDataset(appConfigUrl);
+  const { dataInstances } = useSolidContext();
+  const { dataset: appConfig, error } = useDataset(dataInstances?.[0]);
   const appConfigThings = appConfig ? getThingAll(appConfig) : [];
 
   if (!appConfig) {
@@ -33,7 +33,7 @@ const CharmsList: FunctionComponent = () => {
 
   return (
     <div>
-      <span>Your to-do list has {thingsArray.length} items</span>
+      <span>Your charms list has {thingsArray.length} items</span>
       <Table things={thingsArray}>
         <TableColumn property={NAME_PREDICATE} header="Name" />
         <TableColumn
