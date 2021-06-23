@@ -1,13 +1,19 @@
 import {
+  setThing,
+  addUrl,
   createSolidDataset,
+  createThing,
+  getSourceUrl,
+  getThing,
   getUrlAll,
   saveSolidDatasetAt,
 } from "@inrupt/solid-client";
 import { useDataset, useSession, useThing } from "@inrupt/solid-ui-react";
-import { useState } from "react";
-import { FunctionComponent, useCallback } from "react";
+import { FunctionComponent, useState } from "react";
 import { Outlet } from "react-router-dom";
-import { APP_POD_DIR } from ".";
+import { TYPE_PREDICATE } from "./Charms/shape";
+import Spinner from "./components/Spinner";
+import { fetchAppDataRegistration, getTypeIndices } from "./init";
 
 export const useProfile = () => {
   const {
@@ -26,17 +32,28 @@ export const useProfile = () => {
 };
 
 export const useGetAppConfigUrl = () => {
-  const { thing: profile } = useProfile();
-
-  const podsUrls = profile
-    ? getUrlAll(profile, "http://www.w3.org/ns/pim/space#storage")
-    : null;
+  const {
+    session: {
+      info: { isLoggedIn },
+    },
+  } = useSession();
+  const { thing: profile, error } = useProfile();
+  if (!isLoggedIn) {
+    return undefined;
+  }
+  if (error) {
+    throw new Error(error);
+  }
+  if (!profile) {
+    return undefined;
+  }
+  const podsUrls = getUrlAll(profile, "http://www.w3.org/ns/pim/space#storage");
 
   if (profile && !podsUrls?.[0]) {
     throw new Error("Profile contains no storage");
   }
 
-  return `${podsUrls?.[0]}${APP_POD_DIR}/index.ttl` as const;
+  return `${podsUrls?.[0]}exalted/index.ttl` as const;
 };
 
 const AppInitializationStatus: FunctionComponent = () => {
@@ -53,25 +70,100 @@ const AppInitializationStatus: FunctionComponent = () => {
     refetchToggle
   );
 
-  const initializeApp = useCallback(async () => {
-    const r = await saveSolidDatasetAt(appIndexUrl, createSolidDataset(), {
-      fetch,
-    });
-    if (!r) {
-      throw new Error("Error creating app config");
+  const { dataset: profileDataset } = useDataset(webId);
+  if (profileDataset && webId) {
+    const { public: publicIndices, private: privateIndices } = getTypeIndices(
+      profileDataset,
+      webId
+    );
+    const indices = [...publicIndices, ...privateIndices];
+    if (indices.length > 0) {
+      fetchAppDataRegistration(indices, fetch).then((list) => {
+        console.log(list);
+        if (list.length === 0) {
+          throw new Error("No TypeIndices found");
+        }
+        // If there aren't any data registries, create defaults
+        if (
+          list.every(
+            (d) => d.instances.length === 0 && d.instanceContainers.length === 0
+          )
+        ) {
+          const firstPublicIndex = list.find((d) => d.type === "listed");
+          if (!firstPublicIndex) {
+            throw new Error("Could not find public index");
+          }
+          let newThing = createThing();
+          newThing = addUrl(
+            newThing,
+            TYPE_PREDICATE,
+            "http://www.w3.org/ns/solid/terms#TypeRegistration"
+          );
+          newThing = addUrl(
+            newThing,
+            "http://www.w3.org/ns/solid/terms#forClass",
+            "exalted:Resource"
+          );
+
+          const profile = getThing(profileDataset, webId);
+          if (!profile) {
+            throw new Error("No profile found");
+          }
+          const podsUrls = getUrlAll(
+            profile,
+            "http://www.w3.org/ns/pim/space#storage"
+          );
+
+          if (profile && !podsUrls?.[0]) {
+            throw new Error("Profile contains no storage");
+          }
+
+          const defaultAppDataIndexUrl =
+            `${podsUrls?.[0]}exalted/index.ttl` as const;
+
+          const exaltedIndexDataset = createSolidDataset();
+
+          saveSolidDatasetAt(defaultAppDataIndexUrl, exaltedIndexDataset, {
+            fetch,
+          })
+            .then((r) => {
+              console.log(r);
+
+              newThing = addUrl(
+                newThing,
+                "http://www.w3.org/ns/solid/terms#instance",
+                defaultAppDataIndexUrl
+              );
+
+              saveSolidDatasetAt(
+                getSourceUrl(profileDataset) as string,
+                setThing(profileDataset, newThing),
+                {
+                  fetch,
+                }
+              );
+              debugger;
+              setRefetchToggle((t) => t++);
+            })
+            .catch((e) => {
+              debugger;
+              throw new Error(e);
+            });
+        }
+      });
+    } else {
+      throw new Error("No type index found");
     }
-    setRefetchToggle((t) => t++);
-  }, [appIndexUrl, fetch]);
+  }
 
   if (!isLoggedIn || !webId) return null;
   if (appConfigError && appConfigError.statusCode === 404) {
-    return <button onClick={initializeApp}>Initialize App</button>;
+    return <span>init...</span>;
   } else if (appConfigError) {
     throw new Error(appConfigError);
   }
   if (!appConfig) {
-    console.warn("TODO: add spinner");
-    return null;
+    return <Spinner loading />;
   }
   return <Outlet />;
 };

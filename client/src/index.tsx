@@ -11,12 +11,15 @@ import InitializeApp from "./InitializeApp";
 import reportWebVitals from "./reportWebVitals";
 
 export const APP_ID = "exalted:app:essence.ooo" as const;
-export const APP_POD_DIR = "exalted/essence.ooo" as const;
 export const CHARM_SCHEMA_VERSION = 0;
 
 const Layout: FunctionComponent = () => (
   <SessionProvider sessionId={APP_ID}>
     <header>
+      <h1>
+        Oadenol's Codex{" "}
+        <small style={{ fontVariant: "small-caps" }}>beta</small>
+      </h1>
       <AuthStatus />
     </header>
     <main>
